@@ -134,17 +134,23 @@ export default function MultiCheckoffPage() {
     setQuestionMarks((prev) => ({ ...prev, [id]: prev[id] === mark ? undefined : mark }));
   }, []);
 
-  // Finish: master is on the score page; slave shows thanks, then idle
+  // Questions done → master is on the score page; slave shows thanks while
+  // the TA fills in the score.
+  useEffect(() => {
+    if (step === 3 && experiment) {
+      pushSlave({ kind: "thanks", studentName: student?.name }, experiment.id);
+    }
+  }, [step, experiment, student, pushSlave]);
+
+  // Saved: reset back to the idle "此处可验收" card.
   const reset = useCallback(() => {
-    const name = student?.name;
     setStudent(null);
     setDrawnQuestions([]);
     setQuestionMarks({});
     setQuestionIndex(0);
     setStep(1);
-    pushSlave({ kind: "thanks", studentName: name }, experiment?.id ?? null);
-    setTimeout(() => syncIdle(experiment), 4000);
-  }, [student, experiment, pushSlave, syncIdle]);
+    syncIdle(experiment);
+  }, [experiment, syncIdle]);
 
   const store = useMemo<CheckoffState>(
     () => ({
