@@ -176,18 +176,69 @@ function CreateExperimentForm({ onDone }: { onDone: () => void }) {
 
 export default function ExperimentsPage() {
   const t = useTranslations("experiments");
+  const tc = useTranslations("common");
   const { data, isLoading, mutate } = useSWR<{ experiments: Experiment[] }>("/api/experiments", fetcher);
   const [creating, setCreating] = useState(false);
 
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
   const togglePublish = async (exp: Experiment) => {
-    const res = await fetch("/api/experiments", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: exp.id, isPublished: !exp.isPublished }),
-    });
-    if (res.ok) {
-      toast.success(exp.isPublished ? t("unpublish") : t("publish"));
-      mutate();
+    try {
+      const willPublish = !exp.isPublished;
+      const res = await fetch("/api/experiments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: exp.id, isPublished: willPublish, syncZju: willPublish }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (willPublish) {
+          if (data.syncResult?.success) {
+            toast.success("已发布，并已在学在浙大同步创建代码与报告作业！");
+          } else if (data.syncResult?.skipped) {
+            toast.info("已在本地发布（未配置学在浙大助教凭据，跳过在线建作业）");
+          } else if (data.syncResult?.error) {
+            toast.warning(`已在本地发布，但学在浙大同步未完成: ${data.syncResult.message || data.syncResult.error}`);
+          } else {
+            toast.success(t("publish"));
+          }
+        } else {
+          toast.success(t("unpublish"));
+        }
+        mutate();
+      } else {
+        toast.error(tc("error"));
+      }
+    } catch {
+      toast.error(tc("error"));
+    }
+  };
+
+  const manualSyncZju = async (exp: Experiment) => {
+    setSyncingId(exp.id);
+    try {
+      const res = await fetch("/api/experiments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: exp.id, isPublished: true, syncZju: true }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.syncResult?.success) {
+          toast.success("学在浙大作业已同步创建成功！");
+        } else if (data.syncResult?.skipped) {
+          toast.info("未配置学在浙大助教账号凭据，请先在设置页保存学在浙大账号");
+        } else {
+          toast.error(`同步失败: ${data.syncResult?.message || data.syncResult?.error || tc("error")}`);
+        }
+        mutate();
+      } else {
+        toast.error(tc("error"));
+      }
+    } catch {
+      toast.error(tc("error"));
+    } finally {
+      setSyncingId(null);
     }
   };
 
@@ -250,14 +301,29 @@ export default function ExperimentsPage() {
                   {exp.questions.length} {t("questions")} · {exp._count.submissions} subs
                 </div>
               </div>
-              <Button
-                variant={exp.isPublished ? "danger-soft" : "secondary"}
-                size="sm"
-                onPress={() => togglePublish(exp)}
-              >
-                <Icon icon={exp.isPublished ? "lucide:eye-off" : "lucide:eye"} width={14} />
-                {exp.isPublished ? t("unpublish") : t("publish")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  isPending={syncingId === exp.id}
+                  onPress={() => manualSyncZju(exp)}
+                >
+                  {({ isPending }) => (
+                    <>
+                      {isPending ? <Spinner size="sm" color="current" /> : <Icon icon="lucide:cloud-upload" width={14} />}
+                      同步学在浙大
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant={exp.isPublished ? "danger-soft" : "primary"}
+                  size="sm"
+                  onPress={() => togglePublish(exp)}
+                >
+                  <Icon icon={exp.isPublished ? "lucide:eye-off" : "lucide:eye"} width={14} />
+                  {exp.isPublished ? t("unpublish") : t("publish")}
+                </Button>
+              </div>
             </motion.div>
           ))}
         </div>

@@ -187,13 +187,23 @@ export class ZJUCourses {
     number: string;
     name: string;
     dueDate: Date | string;
+    acceptanceRatio?: number;
+    reportRatio?: number;
+    codeRatio?: number;
   }, publish = false) {
     const endIso = new Date(experiment.dueDate).toISOString();
     const labTag = experiment.number;
 
-    // 1. Code homework
+    const accPct = Math.round((experiment.acceptanceRatio ?? 0.5) * 100);
+    const codePct = Math.round((experiment.codeRatio ?? 0.3) * 100);
+    const repPct = Math.round((experiment.reportRatio ?? 0.2) * 100);
+
+    // 1. Code homework (验收 + 代码折算)
     const codeTitle = `${labTag} 实验代码提交`;
-    const codeDesc = `<p>请同学们提交 <strong>${experiment.name}</strong> 的代码工程压缩包。<br/>命名格式为：<strong>学号_${labTag.toLowerCase()}.zip</strong>。<br/>⚠️ 申领了 Checkpoint 的同学请勿提交本次作业，依据课程规定记 0 分。</p>`;
+    const codeDesc = `<p>请同学们提交 <strong>${experiment.name}</strong> 的代码工程压缩包。<br/>` +
+      `命名格式为：<strong>学号_${labTag.toLowerCase()}.zip</strong>。<br/>` +
+      `📊 <strong>成绩构成说明</strong>：本次代码作业成绩由<strong>现场验收（${accPct}%）</strong>与<strong>代码评分（${codePct}%）</strong>加权综合折算登录。<br/>` +
+      `⚠️ 申领了 Checkpoint 的同学请勿提交本次作业，依据课程规定记 0 分。</p>`;
 
     const codeActivity = await this.createHomeworkActivity(courseId, {
       title: codeTitle,
@@ -202,9 +212,12 @@ export class ZJUCourses {
       publish
     });
 
-    // 2. Report homework
+    // 2. Report homework (报告折算)
     const reportTitle = `${labTag} 实验报告提交`;
-    const reportDesc = `<p>请同学们提交 <strong>${experiment.name}</strong> 的实验报告。<br/>以 PDF 格式提交，命名格式为：<strong>学号_${labTag.toLowerCase()}.pdf</strong>。<br/>⚠️ 申领了 Checkpoint 的同学请勿提交本次作业，依据课程规定记 0 分。</p>`;
+    const reportDesc = `<p>请同学们提交 <strong>${experiment.name}</strong> 的实验报告。<br/>` +
+      `以 PDF 格式提交，命名格式为：<strong>学号_${labTag.toLowerCase()}.pdf</strong>。<br/>` +
+      `📊 <strong>成绩构成说明</strong>：本次报告作业成绩由<strong>实验报告评分（${repPct}%）</strong>折算登录。<br/>` +
+      `⚠️ 申领了 Checkpoint 的同学请勿提交本次作业，依据课程规定记 0 分。</p>`;
 
     const reportActivity = await this.createHomeworkActivity(courseId, {
       title: reportTitle,

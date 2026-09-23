@@ -276,7 +276,13 @@
     "remark": "备注",
     "finalScore": "总得分",
     "runPlagiarism": "运行查重",
-    "exportExcel": "导出 Excel"
+    "exportExcel": "导出 Excel",
+    "codeAssignmentScore": "代码作业登分",
+    "codeAssignmentHint": "验收+代码折算",
+    "reportAssignmentScore": "报告作业登分",
+    "reportAssignmentHint": "报告折算",
+    "exportZjuCsv": "导出学在浙大登分表",
+    "syncZju": "同步学在浙大作业"
   },
   "quizzes": {
     "title": "随堂小测",

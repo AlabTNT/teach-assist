@@ -28,6 +28,41 @@ function computeFinalScore(
   return Math.max(0, Math.round((raw - sub.reportPenalty - sub.codePenalty) * 10) / 10);
 }
 
+function computeZjuScores(
+  sub: {
+    acceptanceScore: number | null;
+    reportScore: number | null;
+    codeScore: number | null;
+    reportPenalty: number;
+    codePenalty: number;
+    checkpointClaimed: boolean;
+  },
+  exp: { acceptanceRatio: number; reportRatio: number; codeRatio: number },
+) {
+  if (sub.checkpointClaimed) {
+    return { codeAssignmentScore: 0, reportAssignmentScore: 0 };
+  }
+
+  // 1. 代码作业成绩：由现场验收与代码评分综合折算登录
+  let codeAssignmentScore: number | null = null;
+  if (sub.acceptanceScore !== null || sub.codeScore !== null) {
+    const combinedWeight = exp.acceptanceRatio + exp.codeRatio;
+    const raw =
+      (sub.acceptanceScore ?? 0) * exp.acceptanceRatio +
+      (sub.codeScore ?? 0) * exp.codeRatio;
+    const normalized = combinedWeight > 0 ? (raw / combinedWeight) : raw;
+    codeAssignmentScore = Math.max(0, Math.round((normalized - sub.codePenalty) * 10) / 10);
+  }
+
+  // 2. 报告作业成绩：由实验报告评分折算登录
+  let reportAssignmentScore: number | null = null;
+  if (sub.reportScore !== null) {
+    reportAssignmentScore = Math.max(0, Math.round((sub.reportScore - sub.reportPenalty) * 10) / 10);
+  }
+
+  return { codeAssignmentScore, reportAssignmentScore };
+}
+
 export const GET = withAuth(async (_request: Request, { params }: { params: Promise<{ id: string }> }) => {
   await requireStaff();
   const { id: experimentId } = await params;
@@ -46,6 +81,10 @@ export const GET = withAuth(async (_request: Request, { params }: { params: Prom
 
   const roster = students.map((st) => {
     const sub = st.submissions[0] ?? null;
+    const zjuScores = sub
+      ? computeZjuScores(sub, experiment)
+      : { codeAssignmentScore: null, reportAssignmentScore: null };
+
     return {
       id: st.id,
       studentId: st.studentId,
@@ -65,6 +104,8 @@ export const GET = withAuth(async (_request: Request, { params }: { params: Prom
             remark: sub.remark,
             submitTime: sub.submitTime,
             finalScore: computeFinalScore(sub, experiment),
+            codeAssignmentScore: zjuScores.codeAssignmentScore,
+            reportAssignmentScore: zjuScores.reportAssignmentScore,
           }
         : null,
     };
@@ -79,11 +120,11 @@ const gradeSchema = z.object({
   reportScore: z.union([z.number(), z.string(), z.null()]).optional(),
   codeScore: z.union([z.number(), z.string(), z.null()]).optional(),
   acceptanceScore: z.union([z.number(), z.string(), z.null()]).optional(),
-  reportPenalty: z.coerce.number().default(0),
-  codePenalty: z.coerce.number().default(0),
-  isPlagiarised: z.boolean().default(false),
+  reportPenalty: z.coerce.number().optional(),
+  codePenalty: z.coerce.number().optional(),
+  isPlagiarised: z.boolean().optional(),
   plagiarismGroup: z.string().nullable().optional(),
-  checkpointClaimed: z.boolean().default(false),
+  checkpointClaimed: z.boolean().optional(),
   remark: z.string().nullable().optional(),
 });
 
@@ -148,22 +189,36 @@ export const POST = withAuth(async (request: Request, { params }: { params: Prom
   const num = (v: unknown): number | null =>
     v === null || v === undefined || v === "" ? null : parseFloat(String(v));
 
-  const data = {
-    reportScore: num(body.reportScore),
-    codeScore: num(body.codeScore),
-    acceptanceScore: num(body.acceptanceScore),
-    reportPenalty: body.reportPenalty,
-    codePenalty: body.codePenalty,
-    isPlagiarised: body.isPlagiarised,
+  // Build partial update data only for keys that are provided in the payload
+  const updateData: Record<string, any> = {};
+  if ("reportScore" in body) updateData.reportScore = num(body.reportScore);
+  if ("codeScore" in body) updateData.codeScore = num(body.codeScore);
+  if ("acceptanceScore" in body) updateData.acceptanceScore = num(body.acceptanceScore);
+  if (body.reportPenalty !== undefined) updateData.reportPenalty = body.reportPenalty;
+  if (body.codePenalty !== undefined) updateData.codePenalty = body.codePenalty;
+  if (body.isPlagiarised !== undefined) updateData.isPlagiarised = body.isPlagiarised;
+  if ("plagiarismGroup" in body) updateData.plagiarismGroup = body.plagiarismGroup ?? null;
+  if (body.checkpointClaimed !== undefined) updateData.checkpointClaimed = body.checkpointClaimed;
+  if ("remark" in body) updateData.remark = body.remark ?? null;
+
+  const createData = {
+    studentId: student.id,
+    experimentId,
+    reportScore: "reportScore" in body ? num(body.reportScore) : null,
+    codeScore: "codeScore" in body ? num(body.codeScore) : null,
+    acceptanceScore: "acceptanceScore" in body ? num(body.acceptanceScore) : null,
+    reportPenalty: body.reportPenalty ?? 0,
+    codePenalty: body.codePenalty ?? 0,
+    isPlagiarised: body.isPlagiarised ?? false,
     plagiarismGroup: body.plagiarismGroup ?? null,
-    checkpointClaimed: body.checkpointClaimed,
+    checkpointClaimed: body.checkpointClaimed ?? false,
     remark: body.remark ?? null,
   };
 
   const submission = await prisma.submission.upsert({
     where: { studentId_experimentId: { studentId: student.id, experimentId } },
-    update: data,
-    create: { studentId: student.id, experimentId, ...data },
+    update: updateData,
+    create: createData,
   });
 
   return Response.json({ submission });

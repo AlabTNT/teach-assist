@@ -276,7 +276,13 @@
     "remark": "Remark",
     "finalScore": "Final score",
     "runPlagiarism": "Run plagiarism check",
-    "exportExcel": "Export Excel"
+    "exportExcel": "Export Excel",
+    "codeAssignmentScore": "ZJU Code Score",
+    "codeAssignmentHint": "Acceptance + Code",
+    "reportAssignmentScore": "ZJU Report Score",
+    "reportAssignmentHint": "Report only",
+    "exportZjuCsv": "Export ZJU Gradebook CSV",
+    "syncZju": "Sync ZJU Homeworks"
   },
   "quizzes": {
     "title": "Quizzes",

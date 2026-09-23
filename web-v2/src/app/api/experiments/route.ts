@@ -57,24 +57,49 @@ async function syncToZju(session: SessionUser, experiment: { id: string }) {
   try {
     const { ZJUAM } = await import("@/lib/zju/zjuam");
     const { ZJUCourses, TARGET_COURSE_ID } = await import("@/lib/zju/zju_courses");
-    const taUser = await prisma.user.findUnique({ where: { id: session.id } });
-    if (!taUser?.zjuamAccount || !taUser?.zjuamPassword) return { skipped: true };
+
+    // 1. Try session user first, then fallback to any configured TA with ZJUAM credentials
+    let taUser = await prisma.user.findUnique({ where: { id: session.id } });
+    if (!taUser?.zjuamAccount || !taUser?.zjuamPassword) {
+      taUser = await prisma.user.findFirst({
+        where: {
+          role: "TA",
+          zjuamAccount: { not: null },
+          zjuamPassword: { not: null },
+        },
+      });
+    }
+
+    if (!taUser?.zjuamAccount || !taUser?.zjuamPassword) {
+      return {
+        skipped: true,
+        error: "NO_ZJUAM_CREDENTIALS",
+        message: "未找到已配置学在浙大/ZJUAM认证信息的助教账号，跳过在线作业创建",
+      };
+    }
+
     const am = new ZJUAM(taUser.zjuamAccount, taUser.zjuamPassword);
     await am.login();
     const cookies = await am.loginService("https://courses.zju.edu.cn/user/index");
     const courses = new ZJUCourses(cookies);
     const full = await prisma.experiment.findUnique({ where: { id: experiment.id } });
-    return await courses.createExperimentDualHomeworks(TARGET_COURSE_ID, full!, true);
+    if (!full) return { error: "EXPERIMENT_NOT_FOUND" };
+
+    const dual = await courses.createExperimentDualHomeworks(TARGET_COURSE_ID, full, true);
+    return { success: true, dual };
   } catch (err) {
     console.warn("ZJU sync failed:", err);
-    return { error: err instanceof Error ? err.message : "SYNC_FAILED" };
+    return {
+      error: err instanceof Error ? err.message : "SYNC_FAILED",
+      message: err instanceof Error ? err.message : "同步学在浙大失败",
+    };
   }
 }
 
 const patchSchema = z.object({
   id: z.string().min(1),
   isPublished: z.boolean(),
-  syncZju: z.boolean().optional(),
+  syncZju: z.boolean().default(true),
 });
 
 export const PATCH = withAuth(async (request: Request) => {
@@ -90,3 +115,4 @@ export const PATCH = withAuth(async (request: Request) => {
 
   return Response.json({ experiment, syncResult });
 });
+

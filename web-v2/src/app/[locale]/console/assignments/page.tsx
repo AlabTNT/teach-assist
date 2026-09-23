@@ -28,6 +28,8 @@ type RosterEntry = {
     checkpointClaimed: boolean;
     remark: string | null;
     finalScore: number | null;
+    codeAssignmentScore: number | null;
+    reportAssignmentScore: number | null;
   } | null;
 };
 
@@ -80,6 +82,7 @@ export default function AssignmentsPage() {
   const [expId, setExpId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [checkingPlagiarism, setCheckingPlagiarism] = useState(false);
+  const [syncingZju, setSyncingZju] = useState(false);
 
   const { data: expData } = useSWR<{ experiments: (Experiment & { isPublished: boolean })[] }>(
     "/api/experiments",
@@ -132,15 +135,117 @@ export default function AssignmentsPage() {
     }
   };
 
+  const syncZjuHomeworks = async () => {
+    if (!expId) return;
+    setSyncingZju(true);
+    try {
+      const res = await fetch("/api/experiments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: expId, isPublished: true, syncZju: true }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        if (d.syncResult?.success) {
+          toast.success("学在浙大双作业同步创建成功！");
+        } else if (d.syncResult?.skipped) {
+          toast.info("未配置学在浙大助教凭据，请先在设置页保存账号");
+        } else {
+          toast.error(`同步失败: ${d.syncResult?.message || d.syncResult?.error || tc("error")}`);
+        }
+      } else {
+        toast.error(tc("error"));
+      }
+    } catch {
+      toast.error(tc("error"));
+    } finally {
+      setSyncingZju(false);
+    }
+  };
+
+  const exportZjuCsv = () => {
+    if (!data?.roster || !expData) return;
+    const currentExp = expData.experiments.find((e) => e.id === expId);
+    const expName = currentExp ? currentExp.number : "Experiment";
+
+    const headers = [
+      "学号",
+      "姓名",
+      "现场验收(100分制)",
+      "代码评分(100分制)",
+      "代码作业登分(验收+代码折算)",
+      "报告评分(100分制)",
+      "报告作业登分(报告折算)",
+      "罚分",
+      "最终总评分",
+      "备注",
+    ];
+
+    const rows = data.roster.map((r) => [
+      `\t${r.studentId}`,
+      r.name,
+      r.submission?.acceptanceScore ?? "",
+      r.submission?.codeScore ?? "",
+      r.submission?.codeAssignmentScore ?? "",
+      r.submission?.reportScore ?? "",
+      r.submission?.reportAssignmentScore ?? "",
+      (r.submission?.reportPenalty ?? 0) + (r.submission?.codePenalty ?? 0),
+      r.submission?.finalScore ?? "",
+      r.submission?.remark ?? (r.hasCheckpoint ? "Checkpoint" : ""),
+    ]);
+
+    const csvContent =
+      "\uFEFF" +
+      [
+        headers.join(","),
+        ...rows.map((row) =>
+          row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
+        ),
+      ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${expName}_学在浙大登分表.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("已导出学在浙大登分表 (CSV)");
+  };
+
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-7xl">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="mb-6"
+        className="mb-6 flex flex-wrap items-center justify-between gap-4"
       >
-        <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t("title")}</h1>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t("title")}</h1>
+          <p className="mt-1 text-xs text-fg-muted">
+            录入现场验收、报告与代码评分，自动计算学在浙大「代码作业」与「报告作业」登分值
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            isPending={syncingZju}
+            onPress={syncZjuHomeworks}
+          >
+            {({ isPending }) => (
+              <>
+                {isPending ? <Spinner color="current" size="sm" /> : <Icon icon="lucide:cloud-upload" width={14} />}
+                {t("syncZju")}
+              </>
+            )}
+          </Button>
+          <Button variant="secondary" size="sm" onPress={exportZjuCsv}>
+            <Icon icon="lucide:download" width={14} />
+            {t("exportZjuCsv")}
+          </Button>
+        </div>
       </motion.div>
 
       {/* toolbar */}
@@ -201,14 +306,26 @@ export default function AssignmentsPage() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-line bg-elevated">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[920px] text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs font-semibold uppercase tracking-wider text-fg-subtle">
                 <th className="px-4 py-3">{tc("search") === "Search" ? "Student" : "学生"}</th>
-                <th className="px-3 py-3 text-center">{t("acceptanceScore")}</th>
-                <th className="px-3 py-3 text-center">{t("reportScore")}</th>
-                <th className="px-3 py-3 text-center">{t("codeScore")}</th>
-                <th className="px-3 py-3 text-center">{t("penalty")}</th>
+                <th className="px-2 py-3 text-center">{t("acceptanceScore")}</th>
+                <th className="px-2 py-3 text-center">{t("codeScore")}</th>
+                <th className="px-2 py-3 text-center">{t("reportScore")}</th>
+                <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-600 dark:text-brand-400">
+                  <div className="flex flex-col items-center">
+                    <span>{t("codeAssignmentScore")}</span>
+                    <span className="text-[10px] font-normal opacity-80">({t("codeAssignmentHint")})</span>
+                  </div>
+                </th>
+                <th className="px-3 py-3 text-center bg-purple-500/5 text-purple-600 dark:text-purple-400">
+                  <div className="flex flex-col items-center">
+                    <span>{t("reportAssignmentScore")}</span>
+                    <span className="text-[10px] font-normal opacity-80">({t("reportAssignmentHint")})</span>
+                  </div>
+                </th>
+                <th className="px-2 py-3 text-center">{t("penalty")}</th>
                 <th className="px-3 py-3 text-center">{t("finalScore")}</th>
                 <th className="px-3 py-3" />
               </tr>
@@ -241,25 +358,52 @@ export default function AssignmentsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 text-center">
+                    <td className="px-2 py-2.5 text-center">
                       <ScoreCell
                         value={r.submission?.acceptanceScore ?? null}
                         onSave={(v) => saveScore(r.studentId, { acceptanceScore: v })}
                       />
                     </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <ScoreCell
-                        value={r.submission?.reportScore ?? null}
-                        onSave={(v) => saveScore(r.studentId, { reportScore: v })}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
+                    <td className="px-2 py-2.5 text-center">
                       <ScoreCell
                         value={r.submission?.codeScore ?? null}
                         onSave={(v) => saveScore(r.studentId, { codeScore: v })}
                       />
                     </td>
-                    <td className="px-3 py-2.5 text-center">
+                    <td className="px-2 py-2.5 text-center">
+                      <ScoreCell
+                        value={r.submission?.reportScore ?? null}
+                        onSave={(v) => saveScore(r.studentId, { reportScore: v })}
+                      />
+                    </td>
+
+                    {/* ZJU Code Assignment Calculated Score (Acceptance + Code) */}
+                    <td className="px-3 py-2.5 text-center bg-brand-500/5">
+                      {r.submission?.codeAssignmentScore !== null && r.submission?.codeAssignmentScore !== undefined ? (
+                        <div className="flex flex-col items-center">
+                          <span className="tabular font-bold text-brand-600 dark:text-brand-300">
+                            {r.submission.codeAssignmentScore.toFixed(1)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-fg-subtle text-xs">—</span>
+                      )}
+                    </td>
+
+                    {/* ZJU Report Assignment Calculated Score (Report) */}
+                    <td className="px-3 py-2.5 text-center bg-purple-500/5">
+                      {r.submission?.reportAssignmentScore !== null && r.submission?.reportAssignmentScore !== undefined ? (
+                        <div className="flex flex-col items-center">
+                          <span className="tabular font-bold text-purple-600 dark:text-purple-300">
+                            {r.submission.reportAssignmentScore.toFixed(1)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-fg-subtle text-xs">—</span>
+                      )}
+                    </td>
+
+                    <td className="px-2 py-2.5 text-center">
                       <ScoreCell
                         value={r.submission ? r.submission.reportPenalty + r.submission.codePenalty : null}
                         onSave={(v) => saveScore(r.studentId, { reportPenalty: v ?? 0 })}

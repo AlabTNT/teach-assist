@@ -7,7 +7,8 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 // Custom agent for legacy ZJU servers
 export const legacyAgent = new https.Agent({
   ciphers: 'DEFAULT@SECLEVEL=1',
-  secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT
+  secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
+  rejectUnauthorized: false,
 });
 
 export const zjuClient = axios.create({
